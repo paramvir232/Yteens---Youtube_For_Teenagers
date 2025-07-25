@@ -20,6 +20,7 @@
   "homepage": "https://github.com/paramvir232/Yteens---Youtube_For_Teenagers#readme",
   "dependencies": {
     "axios": "^1.11.0",
+    "bcrypt": "^6.0.0",
     "dotenv": "^17.1.0",
     "express": "^5.1.0",
     "joi": "^17.13.3",
