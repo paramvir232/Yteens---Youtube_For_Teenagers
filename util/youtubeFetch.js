@@ -30,9 +30,11 @@ async function fetchYouTubeVideos(query = 'math', maxResults = 1) {
   }
 }
 
-async function fetchYouTubeVideosByTopics(topics = ['math', 'science', 'history'], maxResults = 2) {
+async function fetchYouTubeVideosByTopics(topicMap = { 'math': 3, 'tech': 2 }) {
+  const entries = Object.entries(topicMap); // [['math', 3], ['tech', 2]]
+
   const allVideos = await Promise.all(
-    topics.map(topic => fetchYouTubeVideos(topic, maxResults))
+    entries.map(([topic, count]) => fetchYouTubeVideos(topic, count))
   );
 
   return allVideos.flat();
