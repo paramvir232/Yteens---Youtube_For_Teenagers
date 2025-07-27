@@ -6,35 +6,76 @@ const catchAsync = require('../util/catchError');
 const { fetchYouTubeVideos } = require('../util/youtubeFetch');
 const joiValidate = require('../middleware/joiValidationMW')
 const { videoAddSchema } = require('../validators/videoValidator');
-// Add YouTube videos by topic
-router.post('/add', joiValidate(videoAddSchema) , catchAsync(async (req, res) => {
-  const { topic, count = 1, channelId } = req.body;
+const multer = require('multer');
+const { storage } = require('../config/cloudinary');
+const upload = multer({ storage });
+
+// Add video on YouTube
+router.post('/upload', joiValidate(videoAddSchema),upload.single('video'), catchAsync(async (req, res) => {
+  const { title, description, tags, channelId } = req.body;
+
+    // Check channel exists
+    const channel = await Channel.findById(channelId);
+    if (!channel) return res.status(404).json({ msg: 'Channel not found' });
+
+    // Check file was uploaded
+    if (!req.file || !req.file.path) {
+      return res.status(400).json({ msg: 'No video uploaded' });
+    }
+
+    // Convert tag string to array
+    const tagArray = tags
+      ? tags.split(',').map(tag => tag.trim().toLowerCase())
+      : [];
+
+    // Create and save video
+    const newVideo = await Video.create({
+      title,
+      description,
+      tags: tagArray,
+      url: req.file.path,
+      channel: channel._id
+    });
+
+    // Add video to channel
+    channel.videos.push(newVideo._id);
+    await channel.save();
+
+    res.status(201).json({
+      msg: '✅ Video uploaded and saved successfully',
+      video: newVideo
+    });
+  })
+);
+
+//  Delete video by ID
+router.delete('/delete/:id', catchAsync(async (req, res) => {
+  const videoId = req.params.id;
+  const { channelId } = req.body;
+
+  if (!channelId) {
+    return res.status(400).json({ msg: 'Channel ID is required' });
+  }
+
+  const video = await Video.findById(videoId);
+  if (!video) return res.status(404).json({ msg: 'Video not found' });
 
   const channel = await Channel.findById(channelId);
   if (!channel) return res.status(404).json({ msg: 'Channel not found' });
 
-  const ytVideos = await fetchYouTubeVideos(topic, count);
-  const savedVideos = [];
+  // 🔄 Remove video from channel's videos array
+  channel.videos = channel.videos.filter(id => id.toString() !== videoId);
 
-  for (const v of ytVideos) {
-    const exists = await Video.findOne({ youtubeVideoId: v.youtubeVideoId });
-    if (exists) continue;
-
-    const newVideo = await Video.create({
-      youtubeVideoId: v.youtubeVideoId,
-      title: v.title,
-      description: v.description,
-      tags: [topic],
-      channel: channel._id
-    });
-
-    channel.videos.push(newVideo._id);
-    savedVideos.push(newVideo);
-  }
 
   await channel.save();
-  res.status(201).json({ msg: 'Videos added', savedVideos });
+
+
+  // 🗑 Delete from DB
+  await Video.findByIdAndDelete(videoId);
+
+  res.status(200).json({ msg: '✅ Video deleted and channel updated' });
 }));
+
 
 // Get all videos
 router.get('/', catchAsync(async (req, res) => {

@@ -2,12 +2,11 @@ const mongoose = require('mongoose');
 
 const videoSchema = new mongoose.Schema(
   {
-    youtubeVideoId: {
-      type: String,
+    url:{
+      type:String,
       required: true,
-      unique: true
     },
-
+    
     title: {
       type: String,
       required: true,

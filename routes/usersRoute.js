@@ -26,7 +26,7 @@ router.post('/signup', joiValidate(signupSchema), catchAsync(async (req, res) =>
 }));
 
 // Login
-router.post('/login', joiValidate(signupSchema) , catchAsync(async (req, res) => {
+router.post('/login', joiValidate(loginSchema) , catchAsync(async (req, res) => {
 
   const { email, password } = req.body;
 
@@ -46,7 +46,7 @@ router.get('/', catchAsync(async (req, res) => {
 }));
 
 // Get one user by ID
-router.get('/:id', catchAsync(async (req, res) => {
+router.get('/getDetail/:id', catchAsync(async (req, res) => {
   const user = await User.findById(req.params.id).select('-password');
   if (!user) return res.status(404).json({ msg: 'User not found' });
   res.status(200).json(user);

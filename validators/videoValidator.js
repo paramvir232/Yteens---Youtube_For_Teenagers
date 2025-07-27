@@ -1,8 +1,9 @@
 const Joi = require('joi');
 
 exports.videoAddSchema = Joi.object({
-  topic: Joi.string().required(),
-  count: Joi.number().min(1).max(10).default(1),
+  title: Joi.string().required(),
+  description: Joi.string().allow('', null),
+  tags: Joi.string().allow('', null), // comma-separated tags: "math,science"
   channelId: Joi.string().length(24).required()
 });
 

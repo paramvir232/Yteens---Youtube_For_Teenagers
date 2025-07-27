@@ -7,7 +7,7 @@ const { channelCreateSchema } = require('../validators/channelValidator');
 const joiValidate = require('../middleware/joiValidationMW')
 
 // Create Channel
-router.post('/', joiValidate(channelCreateSchema) , catchAsync(async (req, res) => {
+router.post('/create', joiValidate(channelCreateSchema) , catchAsync(async (req, res) => {
   
   const { name, userId } = req.body;
 
@@ -15,9 +15,11 @@ router.post('/', joiValidate(channelCreateSchema) , catchAsync(async (req, res) 
   const user = await User.findById(userId);
   if (!user) return res.status(404).json({ msg: 'User not found' });
 
+  // Check if Channel not Already exist
   const existing = await Channel.findOne({ user: userId });
   if (existing) return res.status(409).json({ msg: 'User already has a channel' });
 
+  // Creating Channel
   const channel = await Channel.create({ name, user: userId });
   res.status(201).json({ msg: 'Channel created', channel });
 }));
@@ -29,14 +31,26 @@ router.get('/', catchAsync(async (req, res) => {
 }));
 
 // Get One Channel by ID
-router.get('/:id', catchAsync(async (req, res) => {
+router.get('/getById/:id', catchAsync(async (req, res) => {
   const channel = await Channel.findById(req.params.id).populate('user', 'userName email');
   if (!channel) return res.status(404).json({ msg: 'Channel not found' });
   res.status(200).json(channel);
 }));
 
+// Get channel By name
+router.get('/getByName/:name', catchAsync(async (req, res) => {
+  const channel = await Channel.find({ name:new RegExp(req.params.name, 'i') }).populate('user', 'userName email');
+
+  if (!channel || channel.length === 0) {
+    return res.status(404).json({ msg: 'Channel not found' });
+  }
+
+  res.status(200).json(channel);
+}));
+
+
 // Update Channel Info
-router.put('/:id', catchAsync(async (req, res) => {
+router.put('/updateDetails/:id', catchAsync(async (req, res) => {
   const updates = req.body;
   const channel = await Channel.findByIdAndUpdate(req.params.id, updates, { new: true });
   if (!channel) return res.status(404).json({ msg: 'Channel not found' });
@@ -44,9 +58,9 @@ router.put('/:id', catchAsync(async (req, res) => {
 }));
 
 // Subscribe to a Channel
-router.post('/:id/subscribe', catchAsync(async (req, res) => {
+router.post('/subscribe/:targetChannelId', catchAsync(async (req, res) => {
   const { subscriberId } = req.body; // Channel ID of who is subscribing
-  const targetChannel = await Channel.findById(req.params.id);
+  const targetChannel = await Channel.findById(req.params.targetChannelId);
   const subscriberChannel = await Channel.findById(subscriberId);
 
   if (!targetChannel || !subscriberChannel) {
@@ -65,16 +79,18 @@ router.post('/:id/subscribe', catchAsync(async (req, res) => {
   res.status(200).json({ msg: 'Subscribed successfully' });
 }));
 
-//  Unsubscribe from a Channel
-router.post('/:id/unsubscribe', catchAsync(async (req, res) => {
+//  Unsubscribe from a Channel '/unsubscribe/:targetid'
+router.post('/unsubscribe/:id', catchAsync(async (req, res) => {
   const { subscriberId } = req.body;
   const targetChannel = await Channel.findById(req.params.id);
   const subscriberChannel = await Channel.findById(subscriberId);
-
+  
+  // Checking if Channel Exist
   if (!targetChannel || !subscriberChannel) {
     return res.status(404).json({ msg: 'Channel not found' });
   }
 
+  // Removing subscriberId and Decrementing the count
   targetChannel.subscribers.channels = targetChannel.subscribers.channels.filter(
     id => id.toString() !== subscriberId
   );
