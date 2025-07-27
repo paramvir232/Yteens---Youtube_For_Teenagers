@@ -7,7 +7,11 @@ const app = Express();
 app.use(Express.json()); 
 
 // Routers
-const userRouter = require('./routes/usersRoute')
+app.use('/user',require('./routes/usersRoute'));
+app.use('/channels', require('./routes/channelRoute'));
+app.use('/videos', require('./routes/videoRoute'));
+
+
 
 require('dotenv').config();
 mongoose.connect(process.env.MONGODB_URI)
@@ -17,7 +21,7 @@ mongoose.connect(process.env.MONGODB_URI)
 // Middlewares 
 const errorMW = require('./middleware/errorMW')   
 
-app.use('/user',userRouter);
+// Final Error Handling Middlware
 app.use(errorMW);
 
 const PORT = process.env.PORT || 3000;
