@@ -143,3 +143,20 @@ paths:
           description: Unsubscribed successfully
         404:
           description: Channel not found
+
+  /channel/delete/{id}:
+    delete:
+      summary: Delete a channel and all its videos
+      tags: [Channels]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          description: The ID of the channel to delete
+          schema:
+            type: string
+      responses:
+        200:
+          description: Channel and associated videos deleted successfully
+        404:
+          description: Channel not found

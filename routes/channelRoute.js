@@ -105,4 +105,22 @@ router.post('/unsubscribe/:id', catchAsync(async (req, res) => {
   res.status(200).json({ msg: 'Unsubscribed successfully' });
 }));
 
+
+// Delete Channel By ID
+router.delete('/delete/:id', catchAsync(async (req, res) => {
+  const channelId = req.params.id;
+
+  // Check if the channel exists
+  const channel = await Channel.findById(channelId);
+  if (!channel) return res.status(404).json({ msg: 'Channel not found' });
+
+  // Delete all videos linked to this channel
+  await Video.deleteMany({ channel: channelId });
+
+  // Delete the channel itself
+  await Channel.findByIdAndDelete(channelId);
+
+  res.status(200).json({ msg: '✅ Channel and all associated videos deleted successfully' });
+}));
+
 module.exports = router;
