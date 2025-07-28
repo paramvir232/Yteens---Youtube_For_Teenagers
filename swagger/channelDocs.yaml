@@ -1,0 +1,145 @@
+paths:
+  /channel/create:
+    post:
+      summary: Create a channel
+      tags: [Channels]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, userId]
+              properties:
+                name:
+                  type: string
+                userId:
+                  type: string
+      responses:
+        201:
+          description: Channel created
+        404:
+          description: User not found
+        409:
+          description: User already has a channel
+
+  /channel:
+    get:
+      summary: Get all channels
+      tags: [Channels]
+      responses:
+        200:
+          description: List of all channels
+
+  /channel/getById/{id}:
+    get:
+      summary: Get a channel by ID
+      tags: [Channels]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Channel found
+        404:
+          description: Channel not found
+
+  /channel/getByName/{name}:
+    get:
+      summary: Get channels by name (substring match)
+      tags: [Channels]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Channels found
+        404:
+          description: No matching channels
+
+  /channel/updateDetails/{id}:
+    put:
+      summary: Update a channel's details
+      tags: [Channels]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                interest:
+                  type: object
+                  additionalProperties:
+                    type: number
+      responses:
+        200:
+          description: Channel updated
+        404:
+          description: Channel not found
+
+  /channel/subscribe/{targetChannelId}:
+    post:
+      summary: Subscribe to a channel
+      tags: [Channels]
+      parameters:
+        - in: path
+          name: targetChannelId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberId]
+              properties:
+                subscriberId:
+                  type: string
+      responses:
+        200:
+          description: Subscribed successfully
+        404:
+          description: Channel not found
+
+  /channel/unsubscribe/{id}:
+    post:
+      summary: Unsubscribe from a channel
+      tags: [Channels]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberId]
+              properties:
+                subscriberId:
+                  type: string
+      responses:
+        200:
+          description: Unsubscribed successfully
+        404:
+          description: Channel not found
