@@ -5,7 +5,7 @@ const Channel = require('../models/channelModel');
 const catchAsync = require('../util/catchError');
 const { fetchYouTubeVideos } = require('../util/youtubeFetch');
 const joiValidate = require('../middleware/joiValidationMW')
-const { videoAddSchema } = require('../validators/videoValidator');
+const { videoAddSchema,videoUpdateSchema } = require('../validators/videoValidator');
 const multer = require('multer');
 const { storage } = require('../config/cloudinary');
 const upload = multer({ storage });
@@ -76,6 +76,32 @@ router.delete('/delete/:id', catchAsync(async (req, res) => {
   res.status(200).json({ msg: '✅ Video deleted and channel updated' });
 }));
 
+//Update Video By ID
+router.put('/update/:id',joiValidate(videoUpdateSchema) ,catchAsync(async (req, res) => {
+  const { title, description, tags } = req.body;
+
+  const video = await Video.findById(req.params.id);
+  if (!video) return res.status(404).json({ msg: 'Video not found' });
+
+  if (title) video.title = title;
+  if (description !== undefined) video.description = description;
+
+  if (tags) {
+    video.tags = tags
+      .split(',')
+      .map(tag => tag.trim().toLowerCase())
+      .filter(tag => tag.length > 0);
+  }
+
+  await video.save();
+
+  res.status(200).json({
+    msg: '✅ Video updated successfully',
+    video
+  });
+}));
+
+
 
 // Get all videos
 router.get('/', catchAsync(async (req, res) => {
@@ -90,31 +116,37 @@ router.get('/tag/:tag', catchAsync(async (req, res) => {
 }));
 
 // Like a video (no duplicate)
-router.post('/:id/like', catchAsync(async (req, res) => {
+router.post('/likeVideo/:id', catchAsync(async (req, res) => {
   const { channelId } = req.body;
+
   const video = await Video.findById(req.params.id);
   if (!video) return res.status(404).json({ msg: 'Video not found' });
 
-  const alreadyLiked = video.likes.by.some(id => id.toString() === channelId);
+  const alreadyLiked = video.likes.by.some(
+    id => id.toString() === channelId
+  );
 
   if (!alreadyLiked) {
     video.likes.by.push(channelId);
     video.likes.count = video.likes.by.length;
     await video.save();
-    return res.status(200).json({ msg: 'Video liked' });
+    return res.status(200).json({ msg: 'Video liked!' });
   }
 
   res.status(200).json({ msg: 'Already liked' });
 }));
 
 // Unlike a video
-router.post('/:id/unlike', catchAsync(async (req, res) => {
+router.post('/unlikeVideo/:id', catchAsync(async (req, res) => {
   const { channelId } = req.body;
+
   const video = await Video.findById(req.params.id);
   if (!video) return res.status(404).json({ msg: 'Video not found' });
 
   const before = video.likes.by.length;
-  video.likes.by = video.likes.by.filter(id => id.toString() !== channelId);
+  video.likes.by = video.likes.by.filter(
+    id => id.toString() !== channelId
+  );
   video.likes.count = video.likes.by.length;
 
   if (before !== video.likes.count) {
@@ -126,24 +158,58 @@ router.post('/:id/unlike', catchAsync(async (req, res) => {
 }));
 
 // Comment on a video
-router.post('/:id/comment', catchAsync(async (req, res) => {
+router.post('/comment/:id', catchAsync(async (req, res) => {
   const { channelId, comment } = req.body;
-  const video = await Video.findById(req.params.id);
+  const videoId = req.params.id;
+
+  if (!channelId || !comment) {
+    return res.status(400).json({ msg: 'channelId and comment are required' });
+  }
+
+  const video = await Video.findById(videoId);
   if (!video) return res.status(404).json({ msg: 'Video not found' });
 
-  video.comments.push({ channel: channelId, comment });
+  const newComment = {
+    channel: channelId,
+    comment,
+    at: new Date()
+  };
+
+  video.comments.push(newComment);
   await video.save();
 
-  res.status(201).json({ msg: 'Comment added' });
+  res.status(201).json({ msg: 'Comment added', comment: newComment });
+}));
+
+// Delete Comment
+router.delete('/:id/deleteComment/:commentId', catchAsync(async (req, res) => {
+  const { id: videoId, commentId } = req.params;
+
+  const video = await Video.findById(videoId);
+  if (!video) return res.status(404).json({ msg: 'Video not found' });
+
+  const initialLength = video.comments.length;
+
+  video.comments = video.comments.filter(c => c._id.toString() !== commentId);
+
+  if (video.comments.length === initialLength) {
+    return res.status(404).json({ msg: 'Comment not found' });
+  }
+
+  await video.save();
+  res.status(200).json({ msg: '✅ Comment deleted' });
 }));
 
 // Track a view 
-router.post('/:id/view', catchAsync(async (req, res) => {
+router.post('/viewVideo/:id', catchAsync(async (req, res) => {
   const { channelId } = req.body;
+
   const video = await Video.findById(req.params.id);
   if (!video) return res.status(404).json({ msg: 'Video not found' });
 
-  const alreadyViewed = video.views.viewers.some(id => id.toString() === channelId);
+  const alreadyViewed = video.views.viewers.some(
+    id => id.toString() === channelId
+  );
 
   if (!alreadyViewed) {
     video.views.viewers.push(channelId);
@@ -152,7 +218,59 @@ router.post('/:id/view', catchAsync(async (req, res) => {
     return res.status(200).json({ msg: 'New view counted' });
   }
 
-  res.status(200).json({ msg: 'Already viewed, not counted again' });
+  res.status(200).json({ msg: 'Already viewed' });
+}));
+
+// 🔍 Search videos by title or tags
+router.get('/search/:query', catchAsync(async (req, res) => {
+  const query = req.params.query;
+
+  const videos = await Video.find({
+    $or: [
+      { title: { $regex: query, $options: 'i' } },   // Match in title
+      { tags: { $regex: query, $options: 'i' } }     // Match in tags
+    ]
+  });
+
+  if (videos.length === 0) {
+    return res.status(404).json({ msg: 'No videos found matching that topic' });
+  }
+
+  res.status(200).json({ msg: 'Videos found', results: videos });
+}));
+
+// Get Video Recomandations
+router.get('/recommend/:channelId/:count', catchAsync(async (req, res) => {
+  const { channelId, count } = req.params;
+
+  const channel = await Channel.findById(channelId);
+  if (!channel) return res.status(404).json({ msg: 'Channel not found' });
+
+  const interest = channel.interest || {};
+  const totalWeight = Array.from(interest.values()).reduce((acc, val) => acc + val, 0);
+
+  if (totalWeight === 0) {
+    return res.status(200).json({ msg: 'No interests yet', videos: [] });
+  }
+
+  const tags = Array.from(interest.entries());
+
+  const videoPromises = tags.map(([tag, freq]) => {
+    const tagCount = Math.round((freq / totalWeight) * count);
+
+    return Video.find({
+      tags: tag,
+      channel: { $ne: channelId } // 👈 exclude your own videos
+    }).limit(tagCount);
+  });
+
+  const videoResults = await Promise.all(videoPromises);
+  const flattened = videoResults.flat().slice(0, count);
+
+  res.status(200).json({
+    msg: `Recommended ${flattened.length} videos (excluding your own)`,
+    videos: flattened
+  });
 }));
 
 module.exports = router;
