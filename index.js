@@ -34,6 +34,9 @@ app.use(errorMW);
 const PORT = process.env.PORT || 3000;
 app.listen(PORT,()=>console.log(`Listening port ${PORT} ...`));
 
+app.get('/', (req, res) => {
+  res.status(200).send('<h1>WELCOME TO YTEEN API</h1>');
+});
 
 app.get('/wake-up', (req, res) => {
   res.status(200).send('Backend is awake!');
