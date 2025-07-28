@@ -5,6 +5,7 @@ const User = require('../models/usersModel');
 const catchAsync = require('../util/catchError');
 const { channelCreateSchema } = require('../validators/channelValidator');
 const joiValidate = require('../middleware/joiValidationMW')
+const Video = require('../models/videoModel');
 
 // Create Channel
 router.post('/create', joiValidate(channelCreateSchema) , catchAsync(async (req, res) => {
@@ -114,8 +115,10 @@ router.delete('/delete/:id', catchAsync(async (req, res) => {
   const channel = await Channel.findById(channelId);
   if (!channel) return res.status(404).json({ msg: 'Channel not found' });
 
+
   // Delete all videos linked to this channel
   await Video.deleteMany({ channel: channelId });
+  
 
   // Delete the channel itself
   await Channel.findByIdAndDelete(channelId);
