@@ -3,14 +3,14 @@ const router = express.Router();
 const Video = require('../models/videoModel');
 const Channel = require('../models/channelModel');
 const catchAsync = require('../util/catchError');
-const { fetchYouTubeVideos } = require('../util/youtubeFetch');
+const fetchYouTubeVideosByTopics  = require('../util/youtubeFetch');
 const joiValidate = require('../middleware/joiValidationMW')
 const { videoAddSchema,videoUpdateSchema } = require('../validators/videoValidator');
 const multer = require('multer');
 const { storage } = require('../config/cloudinary');
 const upload = multer({ storage });
 
-// Add video on YouTube
+// Upload video 
 router.post('/upload', joiValidate(videoAddSchema),upload.single('video'), catchAsync(async (req, res) => {
   const { title, description, tags, channelId } = req.body;
 
@@ -200,26 +200,6 @@ router.delete('/:id/deleteComment/:commentId', catchAsync(async (req, res) => {
   res.status(200).json({ msg: '✅ Comment deleted' });
 }));
 
-// Track a view 
-router.post('/viewVideo/:id', catchAsync(async (req, res) => {
-  const { channelId } = req.body;
-
-  const video = await Video.findById(req.params.id);
-  if (!video) return res.status(404).json({ msg: 'Video not found' });
-
-  const alreadyViewed = video.views.viewers.some(
-    id => id.toString() === channelId
-  );
-
-  if (!alreadyViewed) {
-    video.views.viewers.push(channelId);
-    video.views.count = video.views.viewers.length;
-    await video.save();
-    return res.status(200).json({ msg: 'New view counted' });
-  }
-
-  res.status(200).json({ msg: 'Already viewed' });
-}));
 
 // 🔍 Search videos by title or tags
 router.get('/search/:query', catchAsync(async (req, res) => {
@@ -239,7 +219,7 @@ router.get('/search/:query', catchAsync(async (req, res) => {
   res.status(200).json({ msg: 'Videos found', results: videos });
 }));
 
-// Get Video Recomandations
+// Get Local Video Recomandations
 router.get('/recommend/:channelId/:count', catchAsync(async (req, res) => {
   const { channelId, count } = req.params;
 
@@ -270,6 +250,81 @@ router.get('/recommend/:channelId/:count', catchAsync(async (req, res) => {
   res.status(200).json({
     msg: `Recommended ${flattened.length} videos (excluding your own)`,
     videos: flattened
+  });
+}));
+
+
+// Get Youtube Video Recomandations
+router.get('/recommend-youtube/:channelId/:count', catchAsync(async (req, res) => {
+  const { channelId, count } = req.params;
+
+  const channel = await Channel.findById(channelId);
+  if (!channel) return res.status(404).json({ msg: 'Channel not found' });
+
+  const interest = channel.interest || {};
+  const totalWeight = Array.from(interest.values()).reduce((acc, val) => acc + val, 0);
+
+  if (totalWeight === 0) {
+    return res.status(200).json({ msg: 'No interests yet', videos: [] });
+  }
+
+  // 🔁 Build topicMap like { math: 3, science: 2 }
+  const topicMap = {};
+  for (let [tag, freq] of interest.entries()) {
+    const portion = Math.round((freq / totalWeight) * count);
+    if (portion > 0) topicMap[tag] = portion;
+  }
+
+  const videos = await fetchYouTubeVideosByTopics(topicMap);
+
+  res.status(200).json({
+    msg: `Fetched ${videos.length} YouTube videos`,
+    videos
+  });
+}));
+
+
+// OnClick Video
+router.post('/onClick/:id', catchAsync(async (req, res) => {
+  const { channelId } = req.body;
+
+  if (!channelId) return res.status(400).json({ msg: 'channelId is required' });
+
+  const video = await Video.findById(req.params.id);
+  if (!video) return res.status(404).json({ msg: 'Video not found' });
+
+  const channel = await Channel.findById(channelId);
+  if (!channel) return res.status(404).json({ msg: 'Channel not found' });
+
+  //  Track view if not already viewed
+  const alreadyViewed = video.views.viewers.some(id => id.toString() === channelId);
+  if (!alreadyViewed) {
+    video.views.viewers.push(channelId);
+    video.views.count = video.views.viewers.length;
+  }
+
+  //  Boost interest from video tags
+  video.tags.forEach(tag => {
+    const current = channel.interest.get(tag) || 0;
+    channel.interest.set(tag, current + 1);
+  });
+
+  await Promise.all([video.save(), channel.save()]);
+
+  res.status(200).json({ msg: 'View recorded and interest boosted' });
+}));
+
+// Get Video by Id
+router.get('/get/:id', catchAsync(async (req, res) => {
+  const video = await Video.findById(req.params.id).populate('channel', 'name');
+
+  if (!video) {
+    return res.status(404).json({ msg: 'Video not found' });
+  }
+
+  res.status(200).json({
+    msg: '✅ Video details fetched',
+    video
   });
 }));
 

@@ -11,7 +11,6 @@ app.use(Express.json());
 app.use('/user',require('./routes/usersRoute'));
 app.use('/channel', require('./routes/channelRoute'));
 app.use('/video', require('./routes/videoRoute'));
-app.use('/test', require('./routes/test'));
 
 
 
@@ -30,8 +29,8 @@ app.listen(PORT,()=>console.log(`Listening port ${PORT} ...`));
 
 
 
-const path = require('path');
+// const path = require('path');
 
-app.get('/form', (req, res) => {
-  res.sendFile(path.join(__dirname, 'upload.html')); // Make sure the file is in root or adjust the path
-});
+// app.get('/form', (req, res) => {
+//   res.sendFile(path.join(__dirname, 'upload.html')); // Make sure the file is in root or adjust the path
+// });
