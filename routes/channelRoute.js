@@ -6,24 +6,28 @@ const catchAsync = require('../util/catchError');
 const { channelCreateSchema } = require('../validators/channelValidator');
 const joiValidate = require('../middleware/joiValidationMW')
 const Video = require('../models/videoModel');
+const multer = require('multer');
+const { imageStorage } = require('../config/cloudinary'); // your cloudinary setup
+const upload = multer({ storage: imageStorage });
 
-// Create Channel
-router.post('/create', joiValidate(channelCreateSchema) , catchAsync(async (req, res) => {
+
+// // Create Channel
+// router.post('/create1', joiValidate(channelCreateSchema) , catchAsync(async (req, res) => {
   
-  const { name, userId } = req.body;
+//   const { name, userId } = req.body;
 
-  // Make sure user exists
-  const user = await User.findById(userId);
-  if (!user) return res.status(404).json({ msg: 'User not found' });
+//   // Make sure user exists
+//   const user = await User.findById(userId);
+//   if (!user) return res.status(404).json({ msg: 'User not found' });
 
-  // Check if Channel not Already exist
-  const existing = await Channel.findOne({ user: userId });
-  if (existing) return res.status(409).json({ msg: 'User already has a channel' });
+//   // Check if Channel not Already exist
+//   const existing = await Channel.findOne({ user: userId });
+//   if (existing) return res.status(409).json({ msg: 'User already has a channel' });
 
-  // Creating Channel
-  const channel = await Channel.create({ name, user: userId });
-  res.status(201).json({ msg: 'Channel created', channel });
-}));
+//   // Creating Channel
+//   const channel = await Channel.create({ name, user: userId });
+//   res.status(201).json({ msg: 'Channel created', channel });
+// }));
 
 // Get All Channels
 router.get('/', catchAsync(async (req, res) => {
@@ -125,5 +129,46 @@ router.delete('/delete/:id', catchAsync(async (req, res) => {
 
   res.status(200).json({ msg: '✅ Channel and all associated videos deleted successfully' });
 }));
+
+router.post(
+  '/create',
+  upload.single('profileImage'),
+  joiValidate(channelCreateSchema),
+  catchAsync(async (req, res) => {
+    const { name, userId, description } = req.body;
+
+    // Check user exists
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ msg: 'User not found' });
+
+    // Check if channel already exists
+    const existing = await Channel.findOne({ user: userId });
+    if (existing) return res.status(409).json({ msg: 'User already has a channel' });
+
+    // Upload file
+    const profileImage = req.file?.path || '';
+
+    // if (profileImage==='') {
+    //   res.send('Invalid');
+    //   return;
+    
+  
+    // }
+
+    // res.send(`<h1>${profileImage?profileImage:'Invalid'}</h1>`)
+
+    // Create channel
+    const channel = await Channel.create({
+      name,
+      user: userId,
+      profileImage, // Save Cloudinary URL
+      description
+    });
+
+    res.status(201).json({ msg: 'Channel created', channel });
+  })
+);
+
+
 
 module.exports = router;

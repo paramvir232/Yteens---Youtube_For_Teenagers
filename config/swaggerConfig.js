@@ -10,7 +10,7 @@ const options = {
     },
     servers: [
       {
-        url: 'https://api-yteens.onrender.com',
+        url: 'http://127.0.0.1:3000/',
         description: 'Production server'
       }
     ]
@@ -20,3 +20,4 @@ const options = {
 
 const swaggerSpec = swaggerJSDoc(options);
 module.exports = swaggerSpec;
+//https://api-yteens.onrender.com

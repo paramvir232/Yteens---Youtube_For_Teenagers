@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Channel Test</title>
+</head>
+<body>
+  <h2>Create Channel</h2>
+  <form action="http://127.0.0.1:3000/channel/create" method="POST" enctype="multipart/form-data">
+    <label for="name">Channel Name:</label>
+    <input type="text" name="name" id="name" required>
+    <br><br>
+
+    <label for="description">Channel Description:</label>
+    <input type="text" name="description" id="description" required>
+    <br><br>
+
+    <label for="userId">User ID:</label>
+    <input type="text" name="userId" id="userId" required>
+    <br><br>
+
+    <label for="profileImage">Profile Image:</label>
+    <input type="file" name="profileImage" id="profileImage" accept="image/*">
+    <br><br>
+
+    <button type="submit">Create Channel</button>
+  </form>
+
+  
+</body>
+</html>

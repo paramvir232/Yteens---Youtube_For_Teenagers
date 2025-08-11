@@ -6,21 +6,36 @@ const catchAsync = require('../util/catchError');
 const fetchYouTubeVideosByTopics  = require('../util/youtubeFetch');
 const joiValidate = require('../middleware/joiValidationMW')
 const { videoAddSchema,videoUpdateSchema } = require('../validators/videoValidator');
-const multer = require('multer');
-const { storage } = require('../config/cloudinary');
-const upload = multer({ storage });
 
-// Upload video 
-router.post('/upload', joiValidate(videoAddSchema),upload.single('video'), catchAsync(async (req, res) => {
-  const { title, description, tags, channelId } = req.body;
+const { storage, imageStorage } = require('../config/cloudinary');
+const multer = require('multer');
+const uploadVideo = multer({ storage });
+const uploadImage = multer({ storage: imageStorage });
+
+// Upload both video & thumbnail
+router.post(
+  '/upload',
+  joiValidate(videoAddSchema),
+  multer({ storage }).fields([
+    { name: 'video', maxCount: 1 },
+    { name: 'thumbnail', maxCount: 1 }
+  ]),
+  catchAsync(async (req, res) => {
+    const { title, description, tags, channelId } = req.body;
 
     // Check channel exists
     const channel = await Channel.findById(channelId);
     if (!channel) return res.status(404).json({ msg: 'Channel not found' });
 
-    // Check file was uploaded
-    if (!req.file || !req.file.path) {
+    // Validate video upload
+    if (!req.files || !req.files.video || !req.files.video[0].path) {
       return res.status(400).json({ msg: 'No video uploaded' });
+    }
+
+    // Prepare thumbnail URL if provided
+    let thumbnailUrl = null;
+    if (req.files.thumbnail && req.files.thumbnail[0].path) {
+      thumbnailUrl = req.files.thumbnail[0].path.replace(/\.mp4$/, '.jpg');
     }
 
     // Convert tag string to array
@@ -33,7 +48,8 @@ router.post('/upload', joiValidate(videoAddSchema),upload.single('video'), catch
       title,
       description,
       tags: tagArray,
-      url: req.file.path,
+      url: req.files.video[0].path,
+      thumbnailUrl, // Will be null if no thumbnail
       channel: channel._id
     });
 
@@ -42,7 +58,7 @@ router.post('/upload', joiValidate(videoAddSchema),upload.single('video'), catch
     await channel.save();
 
     res.status(201).json({
-      msg: '✅ Video uploaded and saved successfully',
+      msg: '✅ Video and thumbnail uploaded successfully',
       video: newVideo
     });
   })

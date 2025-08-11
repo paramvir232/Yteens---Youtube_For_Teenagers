@@ -49,6 +49,14 @@ const ChannelSchema = new mongoose.Schema(
       of: Number, // e.g., { science: 2, math: 5 }
       default: {},
     },
+    profileImage: {
+      type: String, // URL from Cloudinary
+      default: ''
+    },
+    description: {
+      type: String,
+      default: ''
+    },
   },
   { timestamps: true }
 );

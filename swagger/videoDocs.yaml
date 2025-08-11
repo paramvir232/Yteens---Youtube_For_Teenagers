@@ -1,7 +1,8 @@
 paths:
   /video/upload:
     post:
-      summary: Upload a video
+      summary: Upload a video with thumbnail
+      description: Uploads a video to a channel along with a thumbnail image.
       tags: [Videos]
       requestBody:
         required: true
@@ -14,20 +15,29 @@ paths:
                 video:
                   type: string
                   format: binary
+                  description: The video file to upload.
+                thumbnail:
+                  type: string
+                  format: binary
+                  description: The thumbnail image for the video.
                 title:
                   type: string
+                  description: The title of the video.
                 description:
                   type: string
+                  description: A short description of the video.
                 tags:
                   type: string
+                  description: Comma-separated list of tags.
                 channelId:
                   type: string
+                  description: The ID of the channel to which the video belongs.
       responses:
-        201:
-          description: Video uploaded and saved
-        400:
+        '201':
+          description: Video and thumbnail uploaded and saved successfully
+        '400':
           description: Validation or upload failed
-        404:
+        '404':
           description: Channel not found
 
   /video/delete/{id}:

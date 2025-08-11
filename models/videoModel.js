@@ -72,6 +72,10 @@ const videoSchema = new mongoose.Schema(
     uploadedAt: {
       type: Date,
       default: Date.now
+    },
+    thumbnailUrl:{
+      type:String,
+      default:''
     }
   },
   { timestamps: true }
