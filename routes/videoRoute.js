@@ -5,9 +5,28 @@ const Channel = require('../models/channelModel');
 const catchAsync = require('../util/catchError');
 const fetchYouTubeVideosByTopics  = require('../util/youtubeFetch');
 const joiValidate = require('../middleware/joiValidationMW')
+// ADDED: validation for upload routes, which must run after multer and clean up on reject.
+const validateAfterUpload = require('../middleware/validateAfterUploadMW');
 const { videoAddSchema,videoUpdateSchema } = require('../validators/videoValidator');
 
+// ADDED: identity now comes from the token, not from a field in the request body.
+const { optionalAuth, requireAuth, resolveChannel } = require('../middleware/authMW');
+const { resolveActorChannel } = require('../middleware/actorMW');
+const { ownsVideoParam, canDeleteComment, actorOf } = require('../middleware/ownershipMW');
+
+/**
+ * The guard every write on this router now carries.
+ *
+ * optionalAuth verifies the token if one is present (a BAD token is still an error);
+ * resolveActorChannel then turns it into req.actorChannelId, or answers 401 when there
+ * is no token at all. The body's channelId is ignored whenever a token is present, so a
+ * client cannot opt back into the old, unverified path by also sending the field.
+ */
+const actor = [optionalAuth, resolveActorChannel({ required: true })];
+
 const { storage, imageStorage } = require('../config/cloudinary');
+// ADDED: used by DELETE /delete/:id to remove the media, not just the database row.
+const { destroyVideoAsset } = require('../util/cloudinaryAsset');
 const multer = require('multer');
 const uploadVideo = multer({ storage });
 const uploadImage = multer({ storage: imageStorage });
@@ -15,13 +34,31 @@ const uploadImage = multer({ storage: imageStorage });
 // Upload both video & thumbnail
 router.post(
   '/upload',
-  joiValidate(videoAddSchema),
+  // ADDED: multer now runs BEFORE validation, and validation is the cleanup-aware kind.
+  //
+  // It used to be the other way round. On a multipart request req.body does not exist
+  // until multer has parsed the form, so the validator saw `undefined`, which Joi
+  // accepts - meaning this route accepted uploads with no title and no channelId and
+  // only failed later, if at all. Validating after multer makes the schema real.
+  //
+  // validateAfterUpload rather than joiValidate because by this point the file is
+  // already in Cloudinary; a plain 400 would leave it orphaned.
   multer({ storage }).fields([
     { name: 'video', maxCount: 1 },
     { name: 'thumbnail', maxCount: 1 }
   ]),
+  ...actor,
+  // ADDED: the authenticated channel overwrites whatever the form said, BEFORE the
+  // schema runs - so the validator still sees the channelId it requires, and a form
+  // field naming someone else's channel is simply discarded rather than rejected.
+  (req, res, next) => {
+    req.body = req.body || {};
+    req.body.channelId = actorOf(req);
+    next();
+  },
+  validateAfterUpload(videoAddSchema),
   catchAsync(async (req, res) => {
-    const { title, description, tags, channelId } = req.body;
+    const { title, description, tags, channelId } = req.body || {}; // ADDED: undefined-body guard
 
     // Check channel exists
     const channel = await Channel.findById(channelId);
@@ -65,16 +102,14 @@ router.post(
 );
 
 //  Delete video by ID
-router.delete('/delete/:id', catchAsync(async (req, res) => {
+router.delete('/delete/:id', ...actor, ownsVideoParam('id'), catchAsync(async (req, res) => {
   const videoId = req.params.id;
-  const { channelId } = req.body;
+  // ADDED: the owning channel comes from the token. It used to come from the body and
+  // was never checked against the video, so any caller could delete any video by
+  // naming their own channel - or anyone else's.
+  const channelId = actorOf(req);
 
-  if (!channelId) {
-    return res.status(400).json({ msg: 'Channel ID is required' });
-  }
-
-  const video = await Video.findById(videoId);
-  if (!video) return res.status(404).json({ msg: 'Video not found' });
+  const video = req.video; // loaded and ownership-checked by ownsVideoParam
 
   const channel = await Channel.findById(channelId);
   if (!channel) return res.status(404).json({ msg: 'Channel not found' });
@@ -86,6 +121,38 @@ router.delete('/delete/:id', catchAsync(async (req, res) => {
   await channel.save();
 
 
+  // ===========================================================================
+  // ADDED: also delete the media from Cloudinary.
+  //
+  // Until this was added, deleting a video removed only the database row. The
+  // video and its thumbnail stayed in Cloudinary forever, consuming storage that
+  // nothing would ever reclaim, because videoModel stores no public_id and so
+  // nothing could identify the orphans afterwards.
+  //
+  // Deliberately before the DB delete, and deliberately non-fatal: if Cloudinary
+  // cannot be reached the row is still removed, because that is what the caller
+  // asked for. The failure is logged so the orphan can be reconciled by hand.
+  // ===========================================================================
+  const videoDestroy = await destroyVideoAsset(video.url, 'video');
+  const thumbDestroy = video.thumbnailUrl
+    ? await destroyVideoAsset(video.thumbnailUrl, 'thumbnail')
+    : null;
+
+  if (!videoDestroy.deleted) {
+    console.warn(
+      `[delete] video ${videoId}: Cloudinary asset not deleted (${videoDestroy.reason}) ` +
+      `- public_id ${videoDestroy.publicId}`
+    );
+  }
+  if (thumbDestroy && !thumbDestroy.deleted) {
+    console.warn(
+      `[delete] video ${videoId}: Cloudinary thumbnail not deleted (${thumbDestroy.reason}) ` +
+      `- public_id ${thumbDestroy.publicId}`
+    );
+  }
+  // ======================= end of the Cloudinary cleanup ======================
+
+
   // 🗑 Delete from DB
   await Video.findByIdAndDelete(videoId);
 
@@ -93,11 +160,12 @@ router.delete('/delete/:id', catchAsync(async (req, res) => {
 }));
 
 //Update Video By ID
-router.put('/update/:id',joiValidate(videoUpdateSchema) ,catchAsync(async (req, res) => {
-  const { title, description, tags } = req.body;
+// ADDED: this route had NO identity check of any kind - not even an unverified
+// channelId in the body. Anyone who knew a video's id could retitle it.
+router.put('/update/:id', ...actor, ownsVideoParam('id'), joiValidate(videoUpdateSchema), catchAsync(async (req, res) => {
+  const { title, description, tags } = req.body || {}; // ADDED: undefined on multipart
 
-  const video = await Video.findById(req.params.id);
-  if (!video) return res.status(404).json({ msg: 'Video not found' });
+  const video = req.video;
 
   if (title) video.title = title;
   if (description !== undefined) video.description = description;
@@ -132,8 +200,10 @@ router.get('/tag/:tag', catchAsync(async (req, res) => {
 }));
 
 // Like a video (no duplicate)
-router.post('/likeVideo/:id', catchAsync(async (req, res) => {
-  const { channelId } = req.body;
+router.post('/likeVideo/:id', ...actor, catchAsync(async (req, res) => {
+  // ADDED: the liking channel is the authenticated one. It used to be whatever the
+  // body said, so anyone could like a video as anyone else.
+  const channelId = actorOf(req);
 
   const video = await Video.findById(req.params.id);
   if (!video) return res.status(404).json({ msg: 'Video not found' });
@@ -153,8 +223,8 @@ router.post('/likeVideo/:id', catchAsync(async (req, res) => {
 }));
 
 // Unlike a video
-router.post('/unlikeVideo/:id', catchAsync(async (req, res) => {
-  const { channelId } = req.body;
+router.post('/unlikeVideo/:id', ...actor, catchAsync(async (req, res) => {
+  const channelId = actorOf(req);
 
   const video = await Video.findById(req.params.id);
   if (!video) return res.status(404).json({ msg: 'Video not found' });
@@ -174,8 +244,11 @@ router.post('/unlikeVideo/:id', catchAsync(async (req, res) => {
 }));
 
 // Comment on a video
-router.post('/comment/:id', catchAsync(async (req, res) => {
-  const { channelId, comment } = req.body;
+router.post('/comment/:id', ...actor, catchAsync(async (req, res) => {
+  // ADDED: the comment is attributed to the authenticated channel, never to a body
+  // field - impersonation in a comment thread is the most visible form of this bug.
+  const { comment } = req.body || {}; // ADDED: undefined on multipart
+  const channelId = actorOf(req);
   const videoId = req.params.id;
 
   if (!channelId || !comment) {
@@ -198,19 +271,25 @@ router.post('/comment/:id', catchAsync(async (req, res) => {
 }));
 
 // Delete Comment
-router.delete('/:id/deleteComment/:commentId', catchAsync(async (req, res) => {
+router.delete('/:id/deleteComment/:commentId', ...actor, catchAsync(async (req, res) => {
   const { id: videoId, commentId } = req.params;
 
   const video = await Video.findById(videoId);
   if (!video) return res.status(404).json({ msg: 'Video not found' });
 
-  const initialLength = video.comments.length;
+  const comment = video.comments.find(c => c._id.toString() === commentId);
+  if (!comment) return res.status(404).json({ msg: 'Comment not found' });
+
+  // ADDED: this route used to delete any comment for any caller. A comment belongs to
+  // its author and sits on someone's video, so either of those two may remove it -
+  // and nobody else.
+  if (!canDeleteComment(comment, video, actorOf(req))) {
+    return res.status(403).json({
+      error: { code: 'NOT_OWNER', message: 'You can only delete your own comments.' },
+    });
+  }
 
   video.comments = video.comments.filter(c => c._id.toString() !== commentId);
-
-  if (video.comments.length === initialLength) {
-    return res.status(404).json({ msg: 'Comment not found' });
-  }
 
   await video.save();
   res.status(200).json({ msg: '✅ Comment deleted' });
@@ -301,8 +380,8 @@ router.get('/recommend-youtube/:channelId/:count', catchAsync(async (req, res) =
 
 
 // OnClick Video
-router.post('/onClick/:id', catchAsync(async (req, res) => {
-  const { channelId } = req.body;
+router.post('/onClick/:id', ...actor, catchAsync(async (req, res) => {
+  const channelId = actorOf(req); // ADDED: was an unverified body field
 
   if (!channelId) return res.status(400).json({ msg: 'channelId is required' });
 

@@ -5,11 +5,19 @@ const catchAsync = require('../util/catchError');
 const bcrypt = require('bcrypt');
 const { signupSchema,loginSchema } = require('../validators/userValidator');
 const joiValidate = require('../middleware/joiValidationMW')
+// ADDED: account changes are now restricted to the account's owner.
+const { requireAuth } = require('../middleware/authMW');
+const { isSelfParam } = require('../middleware/ownershipMW');
 
 // Signup
 router.post('/signup', joiValidate(signupSchema), catchAsync(async (req, res) => {
  
-  const { name, email, password, age } = req.body;
+  // ADDED: req.body is undefined on a multipart request. joiValidate passes it through
+  // (Joi treats undefined as "no value"), so without this the destructure threw a 500.
+  const { name, email, password, age } = req.body || {};
+  if (!name || !email || !password) {
+    return res.status(400).json({ msg: 'name, email and password are required' });
+  }
 
   const existing = await User.findOne({ email });
   if (existing) return res.status(409).json({ msg: 'User already exists' });
@@ -28,7 +36,11 @@ router.post('/signup', joiValidate(signupSchema), catchAsync(async (req, res) =>
 // Login
 router.post('/login', joiValidate(loginSchema) , catchAsync(async (req, res) => {
 
-  const { email, password } = req.body;
+  // ADDED: see the note in /signup.
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ msg: 'email and password are required' });
+  }
 
   const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ msg: 'User not found' });
@@ -53,8 +65,10 @@ router.get('/getDetail/:id', catchAsync(async (req, res) => {
 }));
 
 // Update user
-router.put('/update/:id', catchAsync(async (req, res) => {
-  const updates = req.body;
+router.put('/update/:id', requireAuth, isSelfParam('id'), catchAsync(async (req, res) => {
+  const updates = req.body || {}; // ADDED: undefined on a multipart request
+  // ADDED: this route took a whole body and an id from the URL with no check at all,
+  // so anyone could change anyone's password and take over the account.
   if (updates.password) {
     const salt = await bcrypt.genSalt(10);
     updates.password = await bcrypt.hash(updates.password, salt);
@@ -65,7 +79,7 @@ router.put('/update/:id', catchAsync(async (req, res) => {
 }));
 
 // Delete user
-router.delete('/delete/:id', catchAsync(async (req, res) => {
+router.delete('/delete/:id', requireAuth, isSelfParam('id'), catchAsync(async (req, res) => {
   await User.findByIdAndDelete(req.params.id);
   res.status(200).json({ msg: 'User deleted' });
 }));
