@@ -308,10 +308,10 @@ describe('posting', () => {
         expect(moderation.moderateImage).not.toHaveBeenCalled();
     });
 
-    it('rejects an unsafe image with stage "image"', async () => {
-        moderation.__setVerdicts({
-            image: { safe: false, nsfw_score: 0.9, violence_score: 0, reason: 'nsfw' },
-        });
+    it('rejects an image BOTH image models flag, with stage "image"', async () => {
+        const unsafe = { safe: false, nsfw_score: 0.9, violence_score: 0, reason: 'nsfw' };
+        moderation.__setVerdicts({ image: unsafe });
+        moderation.__setImageBVerdict(null, unsafe);
 
         const res = await auth(
             request(app)
@@ -321,6 +321,34 @@ describe('posting', () => {
         ).expect(422);
 
         expect(res.body.error.stage).toBe('image');
+    });
+
+    it('publishes an image only ONE model flags (either model safe => safe)', async () => {
+        moderation.__setVerdicts({
+            image: { safe: false, nsfw_score: 0.9, violence_score: 0, reason: 'nsfw' },
+        });
+
+        await auth(
+            request(app)
+                .post(`/api/v2/communities/${owner.channel._id}/posts`)
+                .send({ body: 'fine words', imageUrl: 'https://example.com/i.jpg' }),
+            fan.token
+        ).expect(201);
+        expect(moderation.moderateImageB).toHaveBeenCalledWith('https://example.com/i.jpg');
+    });
+
+    it('503 when one model flags the image and the other is down', async () => {
+        moderation.__setVerdicts({
+            image: { safe: false, nsfw_score: 0.9, violence_score: 0, reason: 'nsfw' },
+        });
+        moderation.__setImageBVerdict(null, new Error('model B cold'));
+
+        await auth(
+            request(app)
+                .post(`/api/v2/communities/${owner.channel._id}/posts`)
+                .send({ body: 'fine words', imageUrl: 'https://example.com/i.jpg' }),
+            fan.token
+        ).expect(503);
     });
 
     it('FAILS CLOSED with 503 when moderation is unavailable', async () => {

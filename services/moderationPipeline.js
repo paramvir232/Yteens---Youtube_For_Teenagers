@@ -187,9 +187,28 @@ const reject = (stage, detail) => ({
  * Percentages are rough and deliberately so: the stages have wildly different and
  * unpredictable durations, so these are ordering hints for the UI, not estimates.
  */
+/**
+ * The default image judges: one image model (A), as used by /api/v2/upload.
+ *
+ * `judgeThumbnail(url)` resolves to `{ unsafe, reason, verdict }`.
+ * `judgeFrames(urls)` resolves to the moderateFrames() shape (`safe`, `flagged`,
+ * `checked`, `flaggedIndex`, `reason`, ...).
+ *
+ * The v3 pipeline passes two-model judges instead (services/dualImageModeration.js);
+ * everything else — text, extraction, transcript, progress, rejection messages — is shared,
+ * so the two routes cannot drift apart on anything but the image decision.
+ */
+const singleModelJudges = {
+  judgeThumbnail: async (url) => {
+    const verdict = await moderateImage(url);
+    return { unsafe: isImageUnsafe(verdict), reason: verdict.reason, verdict };
+  },
+  judgeFrames: (urls) => moderateFrames(urls),
+};
+
 const moderateUpload = async (
   { title, description, videoUrl, thumbnailUrl, videoId, durationSec },
-  { onStage = () => {} } = {}
+  { onStage = () => {}, judges = singleModelJudges } = {}
 ) => {
   const log = { stages: {} };
   const report = (stage, pct) => {
@@ -207,8 +226,8 @@ const moderateUpload = async (
   // --- 2. thumbnail: one more call, still before the expensive work -----------------
   report('thumbnail', 20);
   if (thumbnailUrl) {
-    const thumbVerdict = await moderateImage(thumbnailUrl);
-    log.stages.thumbnail = thumbVerdict;
+    const thumb = await judges.judgeThumbnail(thumbnailUrl);
+    log.stages.thumbnail = thumb.verdict;
     /**
      * Still a single-image decision - one thumbnail is the whole evidence, there is no
      * group to take a fraction of - but judged at OUR bar, not the service's.
@@ -218,8 +237,8 @@ const moderateUpload = async (
      * timetable, and with it a 9-minute video whose every frame had passed. One stage on
      * a looser bar than the rest makes the strictest surface the one nobody tuned.
      */
-    if (isImageUnsafe(thumbVerdict)) {
-      return { ...reject('thumbnail', thumbVerdict.reason), log };
+    if (thumb.unsafe) {
+      return { ...reject('thumbnail', thumb.reason), log };
     }
   }
 
@@ -258,7 +277,7 @@ const moderateUpload = async (
   // --- 4. frames and transcript text, concurrently ----------------------------------
   report('frames', 60);
   const [frameVerdictResult, transcriptVerdictResult] = await Promise.allSettled([
-    moderateFrames(frames.frame_urls || []),
+    judges.judgeFrames(frames.frame_urls || []),
     moderateLongText(transcript.english_text || '')
   ]);
 

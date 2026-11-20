@@ -79,11 +79,13 @@ async function runModeration(ctx) {
     channel, title, description, tags,
     videoUrl, thumbnailUrl, videoPublicId, thumbnailPublicId,
     durationSec, userId = null, job = null, onStage,
+    // Optional image judges (v3: two models). Absent for v2, which keeps its defaults.
+    judges,
   } = ctx;
 
   const verdict = await moderateUpload(
     { title, description, videoUrl, thumbnailUrl, videoId: videoPublicId, durationSec },
-    { onStage }
+    judges ? { onStage, judges } : { onStage }
   );
 
   const base = {

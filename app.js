@@ -46,6 +46,8 @@ app.use('/video', require('./routes/videoRoute'));
 // so their sub-paths must stay disjoint: uploadV2Route owns /upload, feedRoute owns
 // /feed.
 app.use('/api/v2', require('./routes/uploadV2Route'));
+// v3 upload: same contract as v2, images judged by two models. v2 stays for older builds.
+app.use('/api/v3', require('./routes/uploadV3Route'));
 app.use('/api/v2', require('./routes/uploadJobsRoute'));
 app.use('/api/v2', require('./routes/feedRoute'));
 app.use('/api/v2/auth', require('./routes/authRoute'));

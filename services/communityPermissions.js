@@ -31,10 +31,13 @@ const EDIT_WINDOW_MS = 15 * 60 * 1000;
  * @param {object|null} membership  the actor's CommunityMember row, or null
  * @param {object} community        the Community document
  * @param {boolean} isSubscribed    is the actor's channel in the owner's subscribers?
+ * @param {boolean} isChannelOwner  does the actor own the channel this community belongs
+ *   to? Ownership comes from the community document itself, so an owner is never
+ *   mistaken for a visitor just because their membership row is missing or demoted.
  */
-function abilities(membership, community, isSubscribed = false) {
+function abilities(membership, community, isSubscribed = false, isChannelOwner = false) {
   const status = membership?.status ?? null;
-  const isOwner = membership?.role === 'owner';
+  const isOwner = isChannelOwner || membership?.role === 'owner';
   const isBanned = status === 'banned';
   const isActiveMember = status === 'active';
 
@@ -52,16 +55,17 @@ function abilities(membership, community, isSubscribed = false) {
     canJoin: !isBanned && !isActiveMember && !isOwner && isSubscribed,
     canLeave: isActiveMember && !isOwner,
 
-    canPost: (isActiveMember || isOwner) && community?.isOpen !== false,
-    canVote: isActiveMember || isOwner,
+    canPost: !isBanned && (isActiveMember || isOwner) && community?.isOpen !== false,
+    canComment: !isBanned && (isActiveMember || isOwner) && community?.isOpen !== false,
+    canVote: !isBanned && (isActiveMember || isOwner),
 
     canModerate: isOwner,   // delete anything, ban, pin, edit settings
   };
 }
 
 /** May this actor delete this post or comment? */
-function canDelete(membership, content) {
-  if (membership?.role === 'owner') return true;             // owner deletes anything
+function canDelete(membership, content, isChannelOwner = false) {
+  if (isChannelOwner || membership?.role === 'owner') return true; // owner deletes anything
   if (membership?.status !== 'active') return false;         // banned or not a member
   return String(content.author) === String(membership.channel); // own content only
 }
