@@ -40,6 +40,61 @@ paths:
         '404':
           description: Channel not found
 
+  /api/v2/upload:
+    post:
+      summary: Upload a video with content moderation
+      description: >
+        Same request body as /video/upload, but every upload is checked before anything is
+        saved. Checks run cheapest-first: title and description, then the thumbnail, then
+        the sampled video frames and the spoken transcript. A video that fails any check is
+        deleted from Cloudinary and no record is created.
+
+
+        The request is synchronous and can take roughly 30 seconds for a clean five-minute
+        video, so the client should show a progress indicator for its whole duration.
+        Rejections return quickly because checking stops at the first failure.
+      tags: [Videos]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [title, channelId, video]
+              properties:
+                video:
+                  type: string
+                  format: binary
+                  description: The video file to upload.
+                thumbnail:
+                  type: string
+                  format: binary
+                  description: The thumbnail image for the video. Moderated when supplied.
+                title:
+                  type: string
+                  description: The title of the video. Moderated.
+                description:
+                  type: string
+                  description: A short description of the video. Moderated.
+                tags:
+                  type: string
+                  description: Comma-separated list of tags.
+                channelId:
+                  type: string
+                  description: The ID of the channel to which the video belongs.
+      responses:
+        '201':
+          description: Video passed moderation, was uploaded and saved
+        '400':
+          description: >
+            Validation failed, no video supplied, or the upload was rejected by
+            moderation. A rejection names the category only, e.g.
+            "Upload rejected: inappropriate visual content".
+        '404':
+          description: Channel not found
+        '500':
+          description: Unexpected failure. The Cloudinary asset is deleted before responding.
+
   /video/delete/{id}:
     delete:
       summary: Delete a video by ID

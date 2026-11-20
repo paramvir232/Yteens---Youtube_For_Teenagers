@@ -1,2 +1,24 @@
+# Secrets. Never commit - see .env.example for the keys this service needs.
 .env
+.env.*
+!.env.example
+
+# Dependencies
 node_modules/
+
+# Test and coverage output
+coverage/
+*.lcov
+.nyc_output/
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/
