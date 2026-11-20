@@ -1,5 +1,4 @@
-const { moderateImage } = require('./moderationClients');
-const { isImageUnsafe } = require('./imageModeration');
+const { judgeImage } = require('./dualImageModeration');
 const { moderateLongText } = require('./textModeration');
 const CommunityModerationLog = require('../models/communityModerationLogModel');
 
@@ -54,26 +53,23 @@ async function moderateContent({ body, imageUrl }) {
   // Text first, image second: text is one cheap call and rejects most of what gets
   // rejected, so an unsafe post usually costs nothing further.
   if (imageUrl) {
-    let imageVerdict;
+    let judged;
     try {
-      imageVerdict = await moderateImage(imageUrl);
+      judged = await judgeImage(imageUrl);
     } catch (err) {
       throw new ModerationUnavailable(err);
     }
 
-    // A post image is one image, so this stays a single-image decision - but on the same
-    // bar as the thumbnail and video frames (services/imageModeration.js). Trusting the
-    // service's own `safe` flag here would hold community posts to a ~0.3 threshold with
-    // an 0.181 false-positive rate while everything else used 0.7.
-    if (isImageUnsafe(imageVerdict)) {
+    // A post image is one image, judged by both image models: it is unsafe only when BOTH
+    // say so, each on the app's bar (services/imageModeration.js). See
+    // services/dualImageModeration.js for the rule and the data behind it.
+    const imageVerdict = judged.verdict;
+    if (judged.unsafe) {
       return {
         safe: false,
         stage: 'image',
-        reason: imageVerdict.reason || 'image',
-        scores: {
-          nsfw_score: imageVerdict.nsfw_score,
-          violence_score: imageVerdict.violence_score,
-        },
+        reason: judged.reason || 'image',
+        scores: judged.scores,
       };
     }
     return { safe: true, text: textVerdict, image: imageVerdict };

@@ -98,11 +98,46 @@ const moderateImage = jest.fn(async (url) => {
   return verdicts.image;
 });
 
+// ── Model B, and list calls for both ──────────────────────────────────────────────────
+// Model B defaults to safe and has its own per-URL overrides. A list call returns ONE
+// verdict, like the real services: the most unsafe image's verdict (highest score).
+let imageBByUrl = {};
+let imageBDefault = null; // null = safe; an Error = service down
+
+const singleA = (url) => {
+  const specific = imageByUrl[url];
+  if (specific instanceof Error) throw specific;
+  if (specific) return specific;
+  if (verdicts.image instanceof Error) throw verdicts.image;
+  return verdicts.image;
+};
+const SAFE = { safe: true, nsfw_score: 0, violence_score: 0, reason: null };
+const singleB = (url) => {
+  const specific = imageBByUrl[url];
+  if (specific instanceof Error) throw specific;
+  if (specific) return specific;
+  if (imageBDefault instanceof Error) throw imageBDefault;
+  return imageBDefault || SAFE;
+};
+const combine = (list) =>
+  list.reduce((worst, v) => {
+    const s = Math.max(v.violence_score || 0, v.nsfw_score || 0);
+    const w = Math.max(worst.violence_score || 0, worst.nsfw_score || 0);
+    return s > w || (v.safe === false && worst.safe !== false) ? v : worst;
+  }, SAFE);
+
+const moderateImagesA = jest.fn(async (urls) => combine(urls.map(singleA)));
+const moderateImagesB = jest.fn(async (urls) => combine(urls.map(singleB)));
+const moderateImageB = jest.fn(async (url) => singleB(url));
+
 module.exports = {
   requestFrames,
   requestTranscript,
   moderateText,
   moderateImage,
+  moderateImagesA,
+  moderateImagesB,
+  moderateImageB,
   TIMEOUTS: { frames: 30000, translate: 180000, text: 20000, image: 30000 },
 
   __setVerdicts(next = {}) {
@@ -111,12 +146,25 @@ module.exports = {
   __setImageVerdict(url, verdict) {
     imageByUrl[url] = withImpliedScores({ image: verdict }).image;
   },
+  /** Model B for one url, or (url omitted) for every url. */
+  __setImageBVerdict(url, verdict) {
+    if (url === null || url === undefined) {
+      imageBDefault = verdict instanceof Error ? verdict : withImpliedScores({ image: verdict }).image;
+    } else {
+      imageBByUrl[url] = verdict instanceof Error ? verdict : withImpliedScores({ image: verdict }).image;
+    }
+  },
   __resetModeration() {
     verdicts = defaults();
     imageByUrl = {};
+    imageBByUrl = {};
+    imageBDefault = null;
     requestFrames.mockClear();
     requestTranscript.mockClear();
     moderateText.mockClear();
     moderateImage.mockClear();
+    moderateImagesA.mockClear();
+    moderateImagesB.mockClear();
+    moderateImageB.mockClear();
   },
 };

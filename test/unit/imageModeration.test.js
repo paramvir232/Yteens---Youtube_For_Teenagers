@@ -107,12 +107,18 @@ describe('every image surface uses that one bar', () => {
 
   it.each([
     ['moderationPipeline.js', 'the thumbnail and the video frames'],
-    ['communityModeration.js', 'community post images']
+    ['dualImageModeration.js', 'v3 thumbnail/frames and community post images (two models)']
   ])('%s decides with isImageUnsafe, not the service flag', (file) => {
     const code = stripComments(fs.readFileSync(path.join(SERVICES, file), 'utf8'));
 
     expect(code).toMatch(/isImageUnsafe\(/);
     // The service's own flag must not be what any decision turns on.
+    expect(code).not.toMatch(/\.safe\s*===\s*false/);
+  });
+
+  it('communityModeration.js decides post images through the two-model judge', () => {
+    const code = stripComments(fs.readFileSync(path.join(SERVICES, 'communityModeration.js'), 'utf8'));
+    expect(code).toMatch(/judgeImage\(/);
     expect(code).not.toMatch(/\.safe\s*===\s*false/);
   });
 });

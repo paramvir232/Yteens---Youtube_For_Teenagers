@@ -12,7 +12,7 @@ const catchAsync = require('../util/catchError');
 const ApiError = require('../util/apiError');
 const { encodeCursor, decodeCursor } = require('../util/cursor');
 const { requireAuth, optionalAuth, resolveChannel } = require('../middleware/authMW');
-const { loadCommunityContext } = require('../middleware/communityContextMW');
+const { loadCommunityContext, contextForCommunityId } = require('../middleware/communityContextMW');
 const { canDelete } = require('../services/communityPermissions');
 const {
   moderateContent,
@@ -95,7 +95,10 @@ const viewerBlock = (req) => ({
   isBanned: req.can.isBanned,
   isSubscribed: req.can.isSubscribed,
   canPost: req.can.canPost,
+  canComment: req.can.canComment,
+  canVote: req.can.canVote,
   canJoin: req.can.canJoin,
+  canLeave: req.can.canLeave,
   canModerate: req.can.canModerate,
 });
 
@@ -337,6 +340,11 @@ router.post(
     if (!req.can.canModerate) {
       throw new ApiError(403, 'NOT_OWNER', 'Only the channel owner can unban members.');
     }
+    if (String(req.params.memberChannelId) === String(req.community.channel)) {
+      // "Unbanning" the owner used to set their own row to 'left', which silently took
+      // away their ability to comment and vote in their own community.
+      throw ApiError.badRequest('CANNOT_UNBAN_SELF', 'You cannot unban yourself.');
+    }
 
     await CommunityMember.updateOne(
       { community: req.community._id, channel: req.params.memberChannelId },
@@ -404,6 +412,7 @@ router.post(
       verdict = await moderateContent({ body, imageUrl });
     } catch (err) {
       if (err instanceof ModerationUnavailable) {
+        console.warn('[community] moderation unavailable (post):', err.cause?.message || err.cause);
         // Fail closed. Nothing is published, and the client is told to retry rather
         // than being accused of posting something unsafe.
         throw new ApiError(503, err.code, err.message);
@@ -449,12 +458,8 @@ router.delete(
       throw ApiError.notFound('POST_NOT_FOUND', 'That post could not be found.');
     }
 
-    const membership = await CommunityMember.findOne({
-      community: post.community,
-      channel: req.channelId,
-    });
-
-    if (!canDelete(membership, post)) {
+    const ctx = await contextForCommunityId(post.community, req.channelId);
+    if (!ctx || !canDelete(ctx.membership, post, ctx.can.isOwner)) {
       throw new ApiError(403, 'NOT_ALLOWED', 'You cannot delete this post.');
     }
 
@@ -478,11 +483,8 @@ router.post(
     const post = await CommunityPost.findById(req.params.postId);
     if (!post) throw ApiError.notFound('POST_NOT_FOUND', 'That post could not be found.');
 
-    const membership = await CommunityMember.findOne({
-      community: post.community,
-      channel: req.channelId,
-    });
-    if (membership?.role !== 'owner') {
+    const ctx = await contextForCommunityId(post.community, req.channelId);
+    if (!ctx?.can.canModerate) {
       throw new ApiError(403, 'NOT_OWNER', 'Only the channel owner can pin posts.');
     }
 
@@ -535,15 +537,17 @@ router.post(
       throw ApiError.notFound('POST_NOT_FOUND', 'That post could not be found.');
     }
 
-    const membership = await CommunityMember.findOne({
-      community: post.community,
-      channel: req.channelId,
-    });
-
-    if (membership?.status === 'banned') {
+    // Same permission rules as posting: the owner may always comment, a closed community
+    // takes no new comments, and a banned member is refused.
+    const ctx = await contextForCommunityId(post.community, req.channelId);
+    if (!ctx) throw ApiError.notFound('COMMUNITY_NOT_FOUND', 'That community does not exist.');
+    if (ctx.can.isBanned) {
       throw new ApiError(403, 'BANNED', 'You cannot comment in this community.');
     }
-    if (!membership || !['active'].includes(membership.status)) {
+    if (!ctx.can.canComment) {
+      if (ctx.community.isOpen === false && (ctx.can.isMember || ctx.can.isOwner)) {
+        throw new ApiError(403, 'COMMUNITY_CLOSED', 'This community is closed to new comments.');
+      }
       throw new ApiError(403, 'NOT_MEMBER', 'Join this community to comment.');
     }
 
@@ -569,6 +573,7 @@ router.post(
       verdict = await moderateContent({ body });
     } catch (err) {
       if (err instanceof ModerationUnavailable) {
+        console.warn('[community] moderation unavailable (comment):', err.cause?.message || err.cause);
         throw new ApiError(503, err.code, err.message);
       }
       throw err;
@@ -612,12 +617,8 @@ router.delete(
       throw ApiError.notFound('COMMENT_NOT_FOUND', 'That comment could not be found.');
     }
 
-    const membership = await CommunityMember.findOne({
-      community: comment.community,
-      channel: req.channelId,
-    });
-
-    if (!canDelete(membership, comment)) {
+    const ctx = await contextForCommunityId(comment.community, req.channelId);
+    if (!ctx || !canDelete(ctx.membership, comment, ctx.can.isOwner)) {
       throw new ApiError(403, 'NOT_ALLOWED', 'You cannot delete this comment.');
     }
 
@@ -644,14 +645,12 @@ async function handleVote(req, res, Model, targetType) {
     throw ApiError.notFound('NOT_FOUND', 'That item could not be found.');
   }
 
-  const membership = await CommunityMember.findOne({
-    community: target.community,
-    channel: req.channelId,
-  });
-  if (membership?.status === 'banned') {
+  const ctx = await contextForCommunityId(target.community, req.channelId);
+  if (!ctx) throw ApiError.notFound('COMMUNITY_NOT_FOUND', 'That community does not exist.');
+  if (ctx.can.isBanned) {
     throw new ApiError(403, 'BANNED', 'You cannot vote in this community.');
   }
-  if (!membership || membership.status !== 'active') {
+  if (!ctx.can.canVote) {
     throw new ApiError(403, 'NOT_MEMBER', 'Join this community to vote.');
   }
 

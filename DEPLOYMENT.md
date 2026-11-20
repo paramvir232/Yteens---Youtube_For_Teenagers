@@ -41,7 +41,11 @@ stay that way** — it holds the JWT secret and the Cloudinary secret.
 ### Required for moderated uploads only
 
 `TRANSCRIPT_SERVICE_URL`, `TRANSCRIPT_SERVICE_API_KEY`, `TEXT_MODERATION_URL`,
-`IMAGE_MODERATION_URL`.
+`IMAGE_MODERATION_URL`, `IMAGE_MODERATION_URL_B`.
+
+`IMAGE_MODERATION_URL_B` is the second image model, used by `POST /api/v3/upload` (the
+route the app now calls) and by community post images: an image counts as unsafe only
+when both models flag it. `POST /api/v2/upload` still uses the first model alone.
 
 Moderation **fails closed**: if any one of these is missing or unreachable, every upload
 through `POST /api/v2/upload` is rejected and its Cloudinary asset destroyed. That is
@@ -61,7 +65,7 @@ Space looks like a broken uploader.
 ### Optional tuning
 
 The moderation thresholds (`IMAGE_VIOLENCE_THRESHOLD`, `FRAME_FLAG_RATIO`,
-`FRAME_MIN_FLAGGED`, `IMAGE_NSFW_THRESHOLD`, `TEXT_TOXICITY_THRESHOLD`,
+`FRAME_MIN_FLAGGED`, `DUAL_FRAME_MIN_FLAGGED`, `IMAGE_NSFW_THRESHOLD`, `TEXT_TOXICITY_THRESHOLD`,
 `TEXT_SEVERE_THRESHOLD`, `TRANSCRIPT_FLAG_RATIO`, `TRANSCRIPT_MIN_FLAGGED`) all have
 defaults and are documented at length in `.env.example`, including the measurements
 behind them. **Leave them unset unless you have re-measured the classifiers.** Read

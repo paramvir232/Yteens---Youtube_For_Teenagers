@@ -107,10 +107,43 @@ const moderateImage = async (url) => {
   return asObject(data, 'image moderation');
 };
 
+// ── Second image model (used by the v3 upload pipeline and community images) ──────────
+//
+// IMAGE_MODERATION_URL_B is the newer image classifier. Same contract as the first:
+// POST {urls: [...]} -> { safe, nsfw_score, violence_score, reason }.
+//
+// Both models answer a LIST of urls with ONE combined verdict for the whole list (measured:
+// a list's verdict equals the verdict of its most unsafe image). So a list call says whether
+// ANY image in it is unsafe, never which one.
+const IMAGE_MODERATION_URL_B = () => process.env.IMAGE_MODERATION_URL_B;
+
+const postImages = async (base, label, urls) => {
+  const { data } = await axios.post(
+    `${base}/moderate-images`,
+    { urls },
+    { timeout: TIMEOUTS.image }
+  );
+  return asObject(data, label);
+};
+
+/** Model A on a list of urls: one verdict for the whole list. */
+const moderateImagesA = (urls) =>
+  postImages(requireEnv(IMAGE_MODERATION_URL(), 'IMAGE_MODERATION_URL'), 'image moderation', urls);
+
+/** Model B on a list of urls: one verdict for the whole list. */
+const moderateImagesB = (urls) =>
+  postImages(requireEnv(IMAGE_MODERATION_URL_B(), 'IMAGE_MODERATION_URL_B'), 'image moderation B', urls);
+
+/** Model B on one url. */
+const moderateImageB = (url) => moderateImagesB([url]);
+
 module.exports = {
   requestFrames,
   requestTranscript,
   moderateText,
   moderateImage,
+  moderateImagesA,
+  moderateImagesB,
+  moderateImageB,
   TIMEOUTS
 };

@@ -90,6 +90,11 @@ router.post('/subscribe/:targetChannelId', ...actor, catchAsync(async (req, res)
   // so anyone could subscribe anyone else's channel to anything - which also moved the
   // target's public subscriber count.
   const subscriberId = actorOf(req);
+  if (String(subscriberId) === String(req.params.targetChannelId)) {
+    // A channel subscribing to itself inflated its own subscriber count, and owners never
+    // need it: they already own their community.
+    return res.status(400).json({ msg: 'You cannot subscribe to your own channel' });
+  }
   const targetChannel = await Channel.findById(req.params.targetChannelId);
   const subscriberChannel = await Channel.findById(subscriberId);
 
@@ -112,6 +117,9 @@ router.post('/subscribe/:targetChannelId', ...actor, catchAsync(async (req, res)
 //  Unsubscribe from a Channel '/unsubscribe/:targetid'
 router.post('/unsubscribe/:id', ...actor, catchAsync(async (req, res) => {
   const subscriberId = actorOf(req); // ADDED: was an unverified body field
+  if (String(subscriberId) === String(req.params.id)) {
+    return res.status(400).json({ msg: 'You cannot unsubscribe from your own channel' });
+  }
   const targetChannel = await Channel.findById(req.params.id);
   const subscriberChannel = await Channel.findById(subscriberId);
   
