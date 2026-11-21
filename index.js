@@ -21,6 +21,13 @@ connectDB()
   .then(() => {
     console.log('Connected to MongoDB');
     app.listen(PORT, () => console.log(`Listening port ${PORT} ...`));
+
+    // In-process upload jobs die with the process. Mark the ones a crash or redeploy left
+    // behind as failed and delete their files from Cloudinary - now, and every 10 minutes.
+    const { sweepStaleJobs } = require('./services/uploadJobRunner');
+    const sweep = () => sweepStaleJobs().catch((e) => console.error('[sweep] failed:', e.message));
+    sweep();
+    setInterval(sweep, 10 * 60 * 1000).unref();
   })
   .catch((err) => {
     console.error('Could Not Connect to MongoDB ..', err);

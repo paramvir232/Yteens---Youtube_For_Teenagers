@@ -38,6 +38,12 @@ app.use(compression());
 
 app.use('/docs', swaggerUI.serve, swaggerUI.setup(swaggerSpec));
 
+// Upload guards, ahead of the routers: answer a doomed upload (no/expired token, no
+// channel) BEFORE multer streams it into Cloudinary, and delete whatever was stored when an
+// upload fails anyway. See middleware/uploadGuardMW.js.
+const { earlyUploadAuth, cleanupUploadsOnFailure } = require('./middleware/uploadGuardMW');
+app.post(['/api/v2/upload', '/api/v3/upload', '/video/upload'], cleanupUploadsOnFailure, earlyUploadAuth);
+
 // Routers
 app.use('/user', require('./routes/usersRoute'));
 app.use('/channel', require('./routes/channelRoute'));
