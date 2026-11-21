@@ -4,6 +4,7 @@ const Transcript = require('../models/transcriptModel');
 const UploadAttempt = require('../models/uploadAttemptModel');
 const UploadJob = require('../models/uploadJobModel');
 const { moderateUpload } = require('./moderationPipeline');
+const { cloudinary } = require('../config/cloudinary');
 
 /**
  * Running an upload through moderation and persisting the outcome.
@@ -191,8 +192,12 @@ const stageMessage = (stage) => STAGE_MESSAGES[stage] || 'Checking your video';
  */
 async function sweepStaleJobs({ olderThanMs = 15 * 60 * 1000 } = {}) {
   const cutoff = new Date(Date.now() - olderThanMs);
+  const staleFilter = { status: { $in: ['queued', 'running'] }, heartbeatAt: { $lt: cutoff } };
+  const stale = await UploadJob.find(staleFilter).select('_id videoPublicId thumbnailPublicId').lean();
+  if (!stale.length) return 0;
+
   const result = await UploadJob.updateMany(
-    { status: { $in: ['queued', 'running'] }, heartbeatAt: { $lt: cutoff } },
+    { ...staleFilter, _id: { $in: stale.map((j) => j._id) } },
     {
       $set: {
         status: 'failed',
@@ -203,6 +208,19 @@ async function sweepStaleJobs({ olderThanMs = 15 * 60 * 1000 } = {}) {
   );
   if (result.modifiedCount) {
     console.warn(`[uploadV2] swept ${result.modifiedCount} stale upload job(s)`);
+  }
+
+  // The process that owned these jobs died before it could clean up, so their files would
+  // otherwise stay in Cloudinary forever. Same call the routes use; never throws.
+  for (const job of stale) {
+    for (const publicId of [job.videoPublicId, job.thumbnailPublicId]) {
+      if (!publicId) continue;
+      try {
+        await cloudinary.uploader.destroy(publicId, { resource_type: 'video', invalidate: true });
+      } catch (err) {
+        console.error(`[uploadV2] could not destroy ${publicId} of stale job ${job._id}:`, err.message);
+      }
+    }
   }
   return result.modifiedCount;
 }

@@ -12,11 +12,20 @@
  * rejected upload actually cleaned up its assets.
  */
 const destroyed = [];
+// Every file the fake storage engine accepted, so a test can assert that a doomed upload
+// never reached Cloudinary at all. `failField` makes storing that field fail, to simulate a
+// Cloudinary error after the first file was already stored.
+const stored = [];
+let failField = null;
 
 const fakeStorage = {
   _handleFile(req, file, cb) {
     const isThumb = file.fieldname === 'thumbnail';
     const publicId = isThumb ? 'yteens_videos/test-thumb' : 'yteens_videos/test-video';
+    if (failField && file.fieldname === failField) {
+      file.stream.resume();
+      return cb(new Error(`simulated Cloudinary failure on ${file.fieldname}`));
+    }
 
     // The stream MUST be consumed before calling back.
     //
@@ -28,6 +37,7 @@ const fakeStorage = {
     let size = 0;
     file.stream.on('data', (chunk) => { size += chunk.length; });
     file.stream.on('end', () => {
+      stored.push(publicId);
       cb(null, {
         path: `https://res.cloudinary.com/demo/video/upload/${publicId}.mp4`,
         filename: publicId,
@@ -68,8 +78,14 @@ module.exports = {
   thumbnailStorage: fakeStorage,
   /** Test helpers. */
   __destroyed: destroyed,
+  __stored: stored,
+  __failField(field) {
+    failField = field;
+  },
   __resetCloudinary() {
     destroyed.length = 0;
+    stored.length = 0;
+    failField = null;
     cloudinary.api.resource.mockClear();
     cloudinary.uploader.destroy.mockClear();
   },

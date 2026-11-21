@@ -38,6 +38,9 @@ const unauthorized = (res, code, message) =>
   res.status(401).json({ error: { code, message } });
 
 function requireAuth(req, res, next) {
+  // Already verified by an earlier guard (middleware/uploadGuardMW.js checks uploads before
+  // the file is stored). Re-verifying could reject a token that expired DURING the upload.
+  if (req.auth) return next();
   const token = extractBearer(req);
   if (!token) return unauthorized(res, 'TOKEN_MISSING', 'Sign in to continue.');
 
@@ -55,6 +58,8 @@ function requireAuth(req, res, next) {
 }
 
 function optionalAuth(req, res, next) {
+  // See requireAuth: a token verified before a long upload is not re-checked after it.
+  if (req.auth) return next();
   const token = extractBearer(req);
   if (!token) return next();
 
